@@ -1,2 +1,2 @@
 # dijkstra-floodlight
-Implementing Dijkstra's algorithm in OpenFlow
+Implementing Dijkstra's algorithm in Floodlight
