@@ -33,6 +33,7 @@ import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
+import net.floodlightcontroller.core.web.serializers.DPIDSerializer;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
@@ -130,14 +131,43 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	@Override
 	public net.floodlightcontroller.core.IListener.Command receive(
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
-
-
 		// Print the topology if not yet.
 		if (!printedTopo) {
 			System.out.println("*** Print topology");
-
 			// For each switch, print its neighbor switches.
-
+			switches = floodlightProvider.getAllSwitchMap();
+			links = lds.getLinks();
+			for(Map.Entry<Long, IOFSwitch> mySw : switches.entrySet()) {
+				// for each occurrence of this switch's mac address in the links
+				// print each destination's link switch key (1,2,3..)
+				System.out.print("switch " + mySw.getKey() + " neighbors: ");
+				for (Map.Entry<Link,LinkInfo> link : links.entrySet()) { 
+					// if link src mac address != to switch mac address
+					if(link.getKey().getSrc() != mySw.getValue().getId())
+						continue;
+					
+					Long destMac = link.getKey().getDst();
+					IOFSwitch destSwitch = floodlightProvider.getSwitch(destMac);
+					if(destSwitch != null) {
+						// find the first key associated with destSwitch in switches
+						for(Map.Entry<Long, IOFSwitch> s : switches.entrySet()) {
+							if(s.getValue().equals(destSwitch)) {
+								System.out.print(s.getKey() + ", ");
+								break;
+							}
+						}
+					}
+				}
+				
+				System.out.println(""); 
+			}
+			
+//			devices = deviceProvider.getAllDevices();
+//			System.out.println("Size of devices: " + devices.size());
+//			for (IDevice device : devices) {
+//				System.out.println(device);
+//			}
+			
 			printedTopo = true;
 		}
 
@@ -145,6 +175,8 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 		// eth is the packet sent by a switch and received by floodlight.
 		Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
 				IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+		
+		
 
 		// We process only IP packets of type 0x0800.
 		if (eth.getEtherType() != 0x0800) {
