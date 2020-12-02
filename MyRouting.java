@@ -161,13 +161,6 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 				
 				System.out.println(""); 
 			}
-			
-//			devices = deviceProvider.getAllDevices();
-//			System.out.println("Size of devices: " + devices.size());
-//			for (IDevice device : devices) {
-//				System.out.println(device);
-//			}
-			
 			printedTopo = true;
 		}
 
@@ -189,11 +182,12 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			OFPacketIn pi = (OFPacketIn)msg;
 			OFMatch match = new OFMatch();
 		    match.loadFromPacket(pi.getPacketData(), pi.getInPort());	
-			
+		    
+		    System.out.println(match);
 			// Obtain source and destination IPs.
 			// ...
-			System.out.println("srcIP: " + "a.b.c.d");
-	        System.out.println("dstIP: " + "a.b.c.d");
+			System.out.println("srcIP: " + ipToString(match.getNetworkSource()));
+	        System.out.println("dstIP: " + ipToString(match.getNetworkDestination()));
 
 
 			// Calculate the path using Dijkstra's algorithm.
@@ -209,6 +203,14 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			return Command.STOP;
 		}
 	}
+	
+	// from OFMatch.java
+	protected static String ipToString(int ip) {
+        return Integer.toString(U8.f((byte) ((ip & 0xff000000) >> 24)))
+               + "." + Integer.toString((ip & 0x00ff0000) >> 16) + "."
+               + Integer.toString((ip & 0x0000ff00) >> 8) + "."
+               + Integer.toString(ip & 0x000000ff);
+    }
 
 	// Install routing rules on switches. 
 	private void installRoute(List<NodePortTuple> path, OFMatch match) {
