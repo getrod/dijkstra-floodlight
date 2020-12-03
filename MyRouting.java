@@ -69,6 +69,7 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	protected Map<Long, IOFSwitch> switches;
 	protected Map<Link, LinkInfo> links;
 	protected Collection<? extends IDevice> devices;
+	protected Map<Long, List<IOFSwitch>> adjacentSwitches;
 
 	protected static int uniqueFlow;
 	protected ILinkDiscoveryService lds;
@@ -137,30 +138,42 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			System.out.println("*** Print topology");
 			// For each switch, print its neighbor switches.
 			switches = floodlightProvider.getAllSwitchMap();
+			adjacentSwitches = new HashMap<Long, List<IOFSwitch>>();
 			links = lds.getLinks();
-			for(Map.Entry<Long, IOFSwitch> mySw : switches.entrySet()) {
-				// for each occurrence of this switch's mac address in the links
-				// print each destination's link switch key (1,2,3..)
-				System.out.print("switch " + mySw.getKey() + " neighbors: ");
+			
+			for(Map.Entry<Long, IOFSwitch> swtch : switches.entrySet()) {
+				Long switchKey = swtch.getKey();
+				adjacentSwitches.put(switchKey, new ArrayList<IOFSwitch>());
+				
 				for (Map.Entry<Link,LinkInfo> link : links.entrySet()) { 
-					// if link src mac address != to switch mac address
-					if(link.getKey().getSrc() != mySw.getValue().getId())
+					// Find each outgoing link of the switch
+					if(link.getKey().getSrc() != swtch.getValue().getId())
 						continue;
 					
 					Long destMac = link.getKey().getDst();
 					IOFSwitch destSwitch = floodlightProvider.getSwitch(destMac);
+					
 					if(destSwitch != null) {
-						// find the first key associated with destSwitch in switches
-						for(Map.Entry<Long, IOFSwitch> s : switches.entrySet()) {
-							if(s.getValue().equals(destSwitch)) {
-								System.out.print(s.getKey() + ", ");
-								break;
-							}
+						adjacentSwitches.get(switchKey).add(destSwitch);
+					}
+				}
+			}
+			
+			// Print topology
+			for (Map.Entry<Long, List<IOFSwitch>> swtch : adjacentSwitches.entrySet()) {
+				System.out.print("switch " + swtch.getKey() + " neighbors: ");
+				List<IOFSwitch> verticies = swtch.getValue();
+				
+				for (IOFSwitch v : verticies) {
+					// Kind the key for switch v
+					for(Map.Entry<Long, IOFSwitch> s : switches.entrySet()) {
+						if(s.getValue().equals(v)) {
+							System.out.print(s.getKey() + ", ");
+							break;
 						}
 					}
 				}
-				
-				System.out.println(""); 
+				System.out.println();
 			}
 			printedTopo = true;
 		}
