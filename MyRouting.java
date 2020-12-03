@@ -39,6 +39,7 @@ import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
 import net.floodlightcontroller.devicemanager.SwitchPort;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Set;
 
@@ -177,7 +178,15 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 		}
 		else{
 			System.out.println("*** New flow packet");
-
+			
+			
+//			for (Map.Entry<Link,LinkInfo> link : links.entrySet()) { 
+//				
+//				System.out.println("Key= " + link.getKey() + 
+//						" Value= " + link.getValue());
+//			}
+			
+			
 			// Parse the incoming packet.
 			OFPacketIn pi = (OFPacketIn)msg;
 			OFMatch match = new OFMatch();
@@ -189,8 +198,12 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			System.out.println("srcIP: " + ipToString(match.getNetworkSource()));
 	        System.out.println("dstIP: " + ipToString(match.getNetworkDestination()));
 
-
 			// Calculate the path using Dijkstra's algorithm.
+	        int srcIP = match.getNetworkSource();
+	        int dstIP = match.getNetworkDestination();
+			
+			
+			List<NodePortTuple> switchPorts = dijkstraPath(srcIP, dstIP);
 			Route route = null;
 			// ...
 			System.out.println("route: " + "1 2 3 ...");			
@@ -202,6 +215,30 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			
 			return Command.STOP;
 		}
+	}
+	
+	private List<NodePortTuple> dijkstraPath (int srcIp, int destIp) {
+		// get src and dest's entry switches
+		SwitchPort srcSw = getDeviceSwitchPort(srcIp);
+		SwitchPort destSw = getDeviceSwitchPort(destIp);
+		
+		if(srcSw == null || destSw == null) return null;
+		
+		// links
+		
+		return null;
+	}
+	
+	
+	private SwitchPort getDeviceSwitchPort(int deviceIp) {
+		// Find the devices's first entry switch
+		devices = deviceProvider.getAllDevices();
+		for (IDevice device : devices) {
+			if (device.getIPv4Addresses()[0] == deviceIp) {
+				return device.getAttachmentPoints()[0];
+			}
+		}
+		return null;
 	}
 	
 	// from OFMatch.java
