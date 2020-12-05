@@ -71,7 +71,7 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	protected Map<Long, IOFSwitch> switches;
 	protected Map<Link, LinkInfo> links;
 	protected Collection<? extends IDevice> devices;
-	protected Map<Long, List<NodePortTuple>> adjacentSwitches;	//<Mac Address, Adjacent Switches>
+	protected Map<Long, List<Long>> adjacentSwitches; //<Mac Address, Adjacent Switches>
 
 	protected static int uniqueFlow;
 	protected ILinkDiscoveryService lds;
@@ -138,14 +138,13 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 		// Print the topology if not yet.
 		if (!printedTopo) {
 			System.out.println("*** Print topology");
-			// For each switch, print its neighbor switches.
 			switches = floodlightProvider.getAllSwitchMap();
-			adjacentSwitches = new HashMap<Long, List<NodePortTuple>>();
+			adjacentSwitches = new HashMap<Long, List<Long>>();
 			links = lds.getLinks();
 			
 			for (Map.Entry<Long, IOFSwitch> swtch : switches.entrySet()) {
 				Long switchKey = swtch.getValue().getId();
-				adjacentSwitches.put(switchKey, new ArrayList<NodePortTuple>());
+				adjacentSwitches.put(switchKey, new ArrayList<Long>());
 				
 				for (Map.Entry<Link,LinkInfo> link : links.entrySet()) { 
 					// Find each outgoing link of the switch
@@ -153,21 +152,23 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 						continue;
 					
 					Long destMac = link.getKey().getDst();
-					int destPort = link.getKey().getDstPort();
 					
-					adjacentSwitches.get(switchKey).add(new NodePortTuple(destMac, destPort));
+					adjacentSwitches.get(switchKey).add(destMac);
 				}
 			}
 			
 			// Print topology
-			for (Map.Entry<Long, List<NodePortTuple>> swtch : adjacentSwitches.entrySet()) {
+			for (Map.Entry<Long, List<Long>> swtch : adjacentSwitches.entrySet()) {
 				System.out.print("switch " + swtch.getKey() + " neighbors: ");
-				List<NodePortTuple> verticies = swtch.getValue();
-				
-				for (NodePortTuple v : verticies) {
-					System.out.print(v.getNodeId() + ", ");
+				List<Long> verticies = swtch.getValue();
+				String out = "";
+				for (Long v : verticies) {
+					out += v + ", ";
 				}
-				System.out.println();
+				
+				// Remove the ", " from last item in topology list string
+				if (out.length() > 2) out = out.substring(0, out.length() - 2);
+				System.out.println(out);
 			}
 			printedTopo = true;
 		}
@@ -200,12 +201,13 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	        
 			LinkedList<NodePortTuple> switchPorts = dijkstraPath(srcIP, dstIP);
 			
-			// Install path from destination back to source
-//			Long swId = sw.getId();
-//			Short swPort;
-//			
-//			
-//			switchPorts.addLast(new NodePortTuple(sw.getId(), sw.getgetPorts().toArray()[0].portNumber));
+			// Print Route
+			System.out.print("route: ");
+			for (int i = 0; i < switchPorts.size(); i += 2) {
+				System.out.print(switchPorts.get(i).getNodeId() + " ");
+			}
+			System.out.println();
+			
 			RouteId id = new RouteId(switchPorts.getFirst().getNodeId(), switchPorts.getLast().getNodeId());
 			Route route = new Route(id, switchPorts);
 			
@@ -229,8 +231,8 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 		Long destSw = destEntry.getSwitchDPID();
 		
 		Map<Long, Long> distances = new HashMap<Long, Long>();			// <Mac Address, Link Distance>
-		Map<Long, Long> previousVertecies = new HashMap<Long, Long>();	// <Mac Address, Mac Address>
-		Set<Long> unvisited = new HashSet<Long>();						// <Mac Address>
+		Map<Long, Long> previousVertecies = new HashMap<Long, Long>(); 	// <Mac Address, Mac Address>
+		Set<Long> unvisited = new HashSet<Long>(); 						// <Mac Address>
 		
 		// Initialize distance to infinity and previousVertex to null
 		for(Map.Entry<Long, IOFSwitch> swtch : switches.entrySet()) {
@@ -256,17 +258,17 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			}
 			
 			// For each adjacent vertex:
-			List<NodePortTuple> adjacentList = adjacentSwitches.get(currentSw); 
-			for (NodePortTuple v : adjacentList) {
+			List<Long> adjacentList = adjacentSwitches.get(currentSw); 
+			for (Long v : adjacentList) {
 				// Get link distance
-				Long newDistance = distances.get(currentSw) + getSwitchLinkDistance(currentSw, v.getNodeId());
-				Long currentDistance = distances.get(v.getNodeId());
+				Long newDistance = distances.get(currentSw) + getSwitchLinkDistance(currentSw, v);
+				Long currentDistance = distances.get(v);
 				// If new distance is less than current:
 				if (newDistance < currentDistance) {
 					// update distance map 
-					distances.put(v.getNodeId(), newDistance);
+					distances.put(v, newDistance);
 					// update previousVertex map
-					previousVertecies.put(v.getNodeId(), currentSw);
+					previousVertecies.put(v, currentSw);
 				}
 			}
 			
@@ -274,34 +276,14 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			unvisited.remove(currentSw);
 		}
 		
-		// Select shortest path from srcSw to destSw
 		// Tuples will be added in pairs of [<currentSw, in-port>, <currentSw, out-port>]
 		LinkedList<NodePortTuple> pathStack = new LinkedList<NodePortTuple>();
 		currentSw = destSw;
 		Long prevSw = previousVertecies.get(currentSw);
 		Long nextSw = null;
 		
-		
-//		NodePortTuple in = new NodePortTuple(currentSw, inPort);
-//		NodePortTuple out = new NodePortTuple(currentSw, outPort);
-//		
-//		pathStack.push(out);
-//		pathStack.push(in);
-//		
-//		nextSw = currentSw;
-//		currentSw = prevSw;
-//		prevSw = previousVertecies.get(currentSw);
-		
-		// Create path information
+		// Create path
 		while(currentSw != null) {
-			// Find currentSw dest port for prevSw link
-//			int port = 0;
-//			List<NodePortTuple> adjacentList = adjacentSwitches.get(prevSw); 
-//			for (NodePortTuple v : adjacentList) {
-//				if (v.getNodeId() == currentSw) {
-//					port = v.getPortId();
-//				}
-//			}
 			int inPort;
 			int outPort;
 			
@@ -326,23 +308,6 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			currentSw = prevSw;
 			prevSw = previousVertecies.get(currentSw);
 		}
-		
-//		NodePortTuple in = new NodePortTuple(currentSw, srcEntry.getPort());
-//		NodePortTuple out = new NodePortTuple(currentSw, getLink(currentSw, nextSw).getSrcPort());
-//		
-//		// Add source at the top of stack
-//		pathStack.push(new NodePortTuple(srcSw, srcEntry.getPort()));
-		
-		// Print it
-		System.out.println("route: ");
-		for (NodePortTuple v : pathStack) {
-			System.out.println("Sw: " + v.getNodeId() 
-				+ "p: " + v.getPortId());
-		}
-		System.out.println();
-		
-		// Add source at the bottom of stack
-		// pathStack.addLast(new NodePortTuple(srcSw, srcEntry.getPort()));
 		
 		return pathStack;
 	}
