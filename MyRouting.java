@@ -2,6 +2,7 @@
 
 Team members and IDs:
 Kevin Louis-Jean 5907646
+Anna Organvidez 5319865
 
 Github link:
 https://github.com/getrod/dijkstra-floodlight
@@ -60,6 +61,7 @@ import org.openflow.util.U8;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+//Implementation files and necessary overrides
 public class MyRouting implements IOFMessageListener, IFloodlightModule {
 
 	protected IFloodlightProviderService floodlightProvider;
@@ -135,7 +137,7 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	@Override
 	public net.floodlightcontroller.core.IListener.Command receive(
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
-		// Print the topology if not yet.
+		// Print the topology if not yet printed.
 		if (!printedTopo) {
 			System.out.println("*** Print topology");
 			switches = floodlightProvider.getAllSwitchMap();
@@ -313,11 +315,11 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	}
 	
 	private Long getSwitchLinkDistance(long srcMac, long dstMac) {
-		// If both switches have even id's, link cost is 100
+		// If both switches have EVEN id's, link cost is 100
 		if (srcMac % 2L == 0 && dstMac % 2L == 0) {
 			return 100L;
 		} 
-		// If both switches have odd id's, link cost is 1
+		// If both switches have ODD id's, link cost is 1
 		else if (srcMac % 2L != 0 && dstMac % 2L != 0) {
 			return 1L;
 		}
