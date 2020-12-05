@@ -71,7 +71,7 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 	protected Map<Long, IOFSwitch> switches;
 	protected Map<Link, LinkInfo> links;
 	protected Collection<? extends IDevice> devices;
-	protected Map<Long, List<IOFSwitch>> adjacentSwitches;	//<Mac Address, Adjacent Switches>
+	protected Map<Long, List<NodePortTuple>> adjacentSwitches;	//<Mac Address, Adjacent Switches>
 
 	protected static int uniqueFlow;
 	protected ILinkDiscoveryService lds;
@@ -140,12 +140,12 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			System.out.println("*** Print topology");
 			// For each switch, print its neighbor switches.
 			switches = floodlightProvider.getAllSwitchMap();
-			adjacentSwitches = new HashMap<Long, List<IOFSwitch>>();
+			adjacentSwitches = new HashMap<Long, List<NodePortTuple>>();
 			links = lds.getLinks();
 			
 			for (Map.Entry<Long, IOFSwitch> swtch : switches.entrySet()) {
 				Long switchKey = swtch.getValue().getId();
-				adjacentSwitches.put(switchKey, new ArrayList<IOFSwitch>());
+				adjacentSwitches.put(switchKey, new ArrayList<NodePortTuple>());
 				
 				for (Map.Entry<Link,LinkInfo> link : links.entrySet()) { 
 					// Find each outgoing link of the switch
@@ -153,23 +153,19 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 						continue;
 					
 					Long destMac = link.getKey().getDst();
-					IOFSwitch destSwitch = floodlightProvider.getSwitch(destMac);
+					int destPort = link.getKey().getDstPort();
 					
-					if(destSwitch != null) {
-						adjacentSwitches.get(switchKey).add(destSwitch);
-					}
+					adjacentSwitches.get(switchKey).add(new NodePortTuple(destMac, destPort));
 				}
 			}
 			
 			// Print topology
-			for (Map.Entry<Long, List<IOFSwitch>> swtch : adjacentSwitches.entrySet()) {
+			for (Map.Entry<Long, List<NodePortTuple>> swtch : adjacentSwitches.entrySet()) {
 				System.out.print("switch " + swtch.getKey() + " neighbors: ");
-				List<IOFSwitch> verticies = swtch.getValue();
+				List<NodePortTuple> verticies = swtch.getValue();
 				
-				for (IOFSwitch v : verticies) {
-					// Find the key for switch v
-					Long key = getSwitchKey(v);
-					System.out.print(key == null ? "" : key + ", ");
+				for (NodePortTuple v : verticies) {
+					System.out.print(v.getNodeId() + ", ");
 				}
 				System.out.println();
 			}
@@ -194,23 +190,25 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			OFPacketIn pi = (OFPacketIn)msg;
 			OFMatch match = new OFMatch();
 		    match.loadFromPacket(pi.getPacketData(), pi.getInPort());	
-		    
-		    System.out.println(match);
-			// Obtain source and destination IPs.
-			// ...
-			System.out.println("srcIP: " + ipToString(match.getNetworkSource()));
-	        System.out.println("dstIP: " + ipToString(match.getNetworkDestination()));
 
 			// Calculate the path using Dijkstra's algorithm.
 	        int srcIP = match.getNetworkSource();
 	        int dstIP = match.getNetworkDestination();
 			
+	        System.out.println("srcIP: " + ipToString(match.getNetworkSource()));
+	        System.out.println("dstIP: " + ipToString(match.getNetworkDestination()));
+	        
+			LinkedList<NodePortTuple> switchPorts = dijkstraPath(srcIP, dstIP);
 			
-			List<NodePortTuple> switchPorts = dijkstraPath(srcIP, dstIP);
-			Route route = null;
-			// ...
-			System.out.println("route: " + "1 2 3 ...");			
-
+			// Install path from destination back to source
+//			Long swId = sw.getId();
+//			Short swPort;
+//			
+//			
+//			switchPorts.addLast(new NodePortTuple(sw.getId(), sw.getgetPorts().toArray()[0].portNumber));
+			RouteId id = new RouteId(switchPorts.getFirst().getNodeId(), switchPorts.getLast().getNodeId());
+			Route route = new Route(id, switchPorts);
+			
 			// Write the path into the flow tables of the switches on the path.
 			if (route != null) {
 				installRoute(route.getPath(), match);
@@ -220,12 +218,15 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 		}
 	}
 	
-	private List<NodePortTuple> dijkstraPath (int srcIp, int destIp) {
+	private LinkedList<NodePortTuple> dijkstraPath (int srcIp, int destIp) {
 		// Get srcIp and destIp's entry switches
-		Long srcSw = getDeviceEntrySwitch(srcIp);
-		Long destSw = getDeviceEntrySwitch(destIp);
+		SwitchPort srcEntry = getDeviceEntrySwitch(srcIp);
+		SwitchPort destEntry = getDeviceEntrySwitch(destIp);
 		
-		if(srcSw == null || destSw == null) return null;
+		if(srcEntry == null || destEntry == null) return null;
+		
+		Long srcSw = srcEntry.getSwitchDPID();
+		Long destSw = destEntry.getSwitchDPID();
 		
 		Map<Long, Long> distances = new HashMap<Long, Long>();			// <Mac Address, Link Distance>
 		Map<Long, Long> previousVertecies = new HashMap<Long, Long>();	// <Mac Address, Mac Address>
@@ -255,89 +256,132 @@ public class MyRouting implements IOFMessageListener, IFloodlightModule {
 			}
 			
 			// For each adjacent vertex:
-			List<IOFSwitch> adjacentList = adjacentSwitches.get(currentSw); 
-			for (IOFSwitch v : adjacentList) {
+			List<NodePortTuple> adjacentList = adjacentSwitches.get(currentSw); 
+			for (NodePortTuple v : adjacentList) {
 				// Get link distance
-				Long newDistance = distances.get(currentSw) + getSwitchLinkDistance(currentSw, v.getId());
-				Long currentDistance = distances.get(v.getId());
+				Long newDistance = distances.get(currentSw) + getSwitchLinkDistance(currentSw, v.getNodeId());
+				Long currentDistance = distances.get(v.getNodeId());
 				// If new distance is less than current:
 				if (newDistance < currentDistance) {
 					// update distance map 
-					distances.put(v.getId(), newDistance);
+					distances.put(v.getNodeId(), newDistance);
 					// update previousVertex map
-					previousVertecies.put(v.getId(), currentSw);
+					previousVertecies.put(v.getNodeId(), currentSw);
 				}
 			}
-			
-			/*
-			// Debug Print
-			System.out.println("v\tdistance\tprev vertex");
-			for (Long v : unvisited) {
-				Long dist = distances.get(v);
-				Long prevVert = previousVertecies.get(v);
-				System.out.println(v + "\t" + ((dist == Long.MAX_VALUE) ? "inf" : dist) + 
-						"\t\t" + previousVertecies.get(v)); 
-			}
-			System.out.println("");
-			*/
 			
 			// Remove current vertex from unvisited
 			unvisited.remove(currentSw);
 		}
 		
 		// Select shortest path from srcSw to destSw
-		ArrayDeque<Long> pathStack = new ArrayDeque<Long>();
+		// Tuples will be added in pairs of [<currentSw, in-port>, <currentSw, out-port>]
+		LinkedList<NodePortTuple> pathStack = new LinkedList<NodePortTuple>();
 		currentSw = destSw;
+		Long prevSw = previousVertecies.get(currentSw);
+		Long nextSw = null;
 		
+		
+//		NodePortTuple in = new NodePortTuple(currentSw, inPort);
+//		NodePortTuple out = new NodePortTuple(currentSw, outPort);
+//		
+//		pathStack.push(out);
+//		pathStack.push(in);
+//		
+//		nextSw = currentSw;
+//		currentSw = prevSw;
+//		prevSw = previousVertecies.get(currentSw);
+		
+		// Create path information
 		while(currentSw != null) {
-			pathStack.push(currentSw);
-			currentSw = previousVertecies.get(currentSw);
-		}
-		
-		
-		
-		return null;
-	}
-	
-	private Long getSwitchKey(IOFSwitch sw) {
-		for(Map.Entry<Long, IOFSwitch> s : switches.entrySet()) {
-			if(s.getValue().equals(sw)) {
-				return s.getKey();
+			// Find currentSw dest port for prevSw link
+//			int port = 0;
+//			List<NodePortTuple> adjacentList = adjacentSwitches.get(prevSw); 
+//			for (NodePortTuple v : adjacentList) {
+//				if (v.getNodeId() == currentSw) {
+//					port = v.getPortId();
+//				}
+//			}
+			int inPort;
+			int outPort;
+			
+			if (currentSw == destSw) {
+				inPort = getLink(prevSw, currentSw).getDstPort();
+				outPort = destEntry.getPort();
+			} else if (currentSw == srcSw) {
+				inPort = srcEntry.getPort();
+				outPort = getLink(currentSw, nextSw).getSrcPort();
+			} else {
+				inPort = getLink(prevSw, currentSw).getDstPort();
+				outPort = getLink(currentSw, nextSw).getSrcPort();
 			}
+			   
+			NodePortTuple in = new NodePortTuple(currentSw, inPort);
+			NodePortTuple out = new NodePortTuple(currentSw, outPort);
+			
+			pathStack.push(out);
+			pathStack.push(in);
+			
+			nextSw = currentSw;
+			currentSw = prevSw;
+			prevSw = previousVertecies.get(currentSw);
 		}
-		return null;
+		
+//		NodePortTuple in = new NodePortTuple(currentSw, srcEntry.getPort());
+//		NodePortTuple out = new NodePortTuple(currentSw, getLink(currentSw, nextSw).getSrcPort());
+//		
+//		// Add source at the top of stack
+//		pathStack.push(new NodePortTuple(srcSw, srcEntry.getPort()));
+		
+		// Print it
+		System.out.println("route: ");
+		for (NodePortTuple v : pathStack) {
+			System.out.println("Sw: " + v.getNodeId() 
+				+ "p: " + v.getPortId());
+		}
+		System.out.println();
+		
+		// Add source at the bottom of stack
+		// pathStack.addLast(new NodePortTuple(srcSw, srcEntry.getPort()));
+		
+		return pathStack;
 	}
 	
 	private Long getSwitchLinkDistance(long srcMac, long dstMac) {
-//		for (Map.Entry<Link,LinkInfo> entry : links.entrySet()) { 
-//			Link link = entry.getKey();
-//			if(link.getSrc() == srcMac && link.getDst() == dstMac) {
-//				return entry.getValue().getUnicastValidTime();
-//			}
-//		}
-		
 		// If both switches have even id's, link cost is 100
 		if (srcMac % 2L == 0 && dstMac % 2L == 0) {
 			return 100L;
-		} else if (srcMac % 2L != 0 && dstMac % 2L != 0) {
+		} 
+		// If both switches have odd id's, link cost is 1
+		else if (srcMac % 2L != 0 && dstMac % 2L != 0) {
 			return 1L;
 		}
+		// Otherwise, 10
 		return 10L;
 	}
 	
 	
-	private Long getDeviceEntrySwitch(int deviceIp) {
+	private SwitchPort getDeviceEntrySwitch(int deviceIp) {
 		// Find the devices's first entry switch
 		devices = deviceProvider.getAllDevices();
 		for (IDevice device : devices) {
 			if (device.getIPv4Addresses()[0] == deviceIp) {
-				return device.getAttachmentPoints()[0].getSwitchDPID();
+				return device.getAttachmentPoints()[0];
 			}
 		}
 		return null;
 	}
 	
-	// from OFMatch.java
+	private Link getLink(long srcMac, long dstMac) {
+		for (Map.Entry<Link,LinkInfo> entry : links.entrySet()) { 
+			Link link = entry.getKey();
+			if(link.getSrc() == srcMac && link.getDst() == dstMac) {
+				return link;
+			}
+		}
+		return null;
+	}
+	
 	protected static String ipToString(int ip) {
         return Integer.toString(U8.f((byte) ((ip & 0xff000000) >> 24)))
                + "." + Integer.toString((ip & 0x00ff0000) >> 16) + "."
